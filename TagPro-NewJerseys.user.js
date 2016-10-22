@@ -1,7 +1,6 @@
 // ==UserScript==
 // @name         TagPro NewJerseys
-// @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.40
 // @description  Set and change ball jerseys directly from the group page
 // @author       Some Ball -1, zeeres
 // @include      http://tagpro-*.koalabeast.com*
@@ -33,6 +32,7 @@ var WhereAmI = function(){
 
 var IAmIn = WhereAmI();
 
+
 if(IAmIn === 'group') // group page
 {
     var init = false;
@@ -53,7 +53,7 @@ if(IAmIn === 'group') // group page
     function setup()
     {
         var $redTeam = $('#red-team'); //.find('.player-group-header');
-        $redTeam.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br>');
+        $redTeam.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br>'); 
         var $blueTeam = $('#blue-team'); //.find('.player-group-header');
         $blueTeam.append('<select id="blueTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br>');
         $('#redTeamJerseys').change(function() {GM_setValue('redJersey',$('#redTeamJerseys').val()==='none'?false:$('#redTeamJerseys').val());});
@@ -74,7 +74,9 @@ if(IAmIn === 'group') // group page
         });
         var jerseys = [[[]]], //league > team > jersey colors
             teams = [[]], //league > team
-            leagues = []; //league
+            leagues = [], //league
+            match = /([A-Za-z]+)\|([0-9])/;  // imgur description will be matched for this
+
         $.ajax({
             url: 'https://api.imgur.com/3/album/tE24G/images',
             headers: {
@@ -85,24 +87,27 @@ if(IAmIn === 'group') // group page
                 data.data.forEach(function(curr) {
                     if(curr.description && curr.title)
                     {
-                        var descriptor = curr.description.match(/(.+)\|(.+)/),
-                            league,
-                            team;
+                        var descriptor = curr.description.match(match),
+                            league_index,
+                            team_index;
                         if(leagues.indexOf(descriptor[1])===-1) //new league
                         {
                             leagues.push(descriptor[1]);
-                            league = leagues.length-1;
-                            teams[league] = [];
-                            jerseys[league] = [[]];
+                            league_index = leagues.length-1;
+                            teams[league_index] = [];
+                            jerseys[league_index] = [[]];
+                        } else {
+                            league_index = leagues.indexOf(descriptor[1]);
                         }
-                        league = league || leagues.indexOf(descriptor[1]);
-                        if(teams[league].indexOf(curr.title)===-1) //new team
+                        if(teams[league_index].indexOf(curr.title)===-1) //new team
                         {
-                            teams[league].push(curr.title);
-                            team = teams[league].length-1;
-                            jerseys[league][team] = [];
+                            teams[league_index].push(curr.title);
+                            team_index = teams[league_index].length-1;
+                            jerseys[league_index][team_index] = [];
+                            jerseys[league_index][team_index][parseInt(descriptor[2])] = curr.id;
+                        } else {
+                            jerseys[league_index][teams[league].indexOf(curr.title)][parseInt(descriptor[2])] = curr.id;
                         }
-                        jerseys[league][team || teams[league].indexOf(curr.title)][parseInt(descriptor[2])] = curr.id;
                     }
                 });
                 function nextAlbum(albumIndex)
@@ -126,24 +131,40 @@ if(IAmIn === 'group') // group page
                             data.data.forEach(function(curr) {
                                 if(curr.title)
                                 {
-                                    var color = curr.description?curr.description.match(/\d/):0,
-                                        league,
-                                        team;
-                                    if(leagues.indexOf('Custom')===-1)
+                                    var descriptor = curr.description.match(match),
+                                        league_index,
+                                        team_index;
+                                    if (curr.description && descriptor)
+                                    {
+                                        if(leagues.indexOf(descriptor[1])===-1) //new league
+                                        {
+                                            leagues.push(descriptor[1]);
+                                            league_index = leagues.length-1;
+                                            teams[league_index] = [];
+                                            jerseys[league_index] = [[]];
+                                        } else {
+                                            league_index = leagues.indexOf(descriptor[1]);
+                                        }
+                                    } else if(leagues.indexOf('Custom')===-1)
                                     {
                                         leagues.push('Custom');
-                                        league = leagues.length-1;
-                                        teams[league] = [];
-                                        jerseys[league] = [[]];
+                                        league_index = leagues.length-1;
+                                        teams[league_index] = [];
+                                        jerseys[league_index] = [[]];
+                                    } else {
+                                        league_index = leagues.indexOf('Custom');
                                     }
-                                    league = league || leagues.indexOf('Custom');
-                                    if(teams[league].indexOf(curr.title)===-1)
+
+                                    if(teams[league_index].indexOf(curr.title)===-1)  //new team
                                     {
-                                        teams[league].push(curr.title);
-                                        team = teams[league].length-1;
-                                        jerseys[league][team] = [];
+                                        teams[league_index].push(curr.title);
+                                        team_index = teams[league_index].length-1;
+                                        jerseys[league_index][team_index] = [];
+                                        jerseys[league_index][team_index][descriptor?parseInt(descriptor[2]):0] = curr.id;
+                                    } else {
+                                        team_index = teams[league_index].indexOf(curr.title);
+                                        jerseys[league_index][team_index][descriptor?parseInt(descriptor[2]):0] = curr.id;
                                     }
-                                    jerseys[league][team || teams[league].indexOf(curr.title)][color?color:0] = curr.id;
                                 }
                             });
                             nextAlbum(nextIndex);
@@ -191,6 +212,7 @@ if(IAmIn === 'group') // group page
                                 jerseys[league][team || teams[league].indexOf(curr.title)][color?color:0] = curr.id;
                             }
                             nextImage(nextIndex);
+
                         }
                     });
                 }
@@ -202,6 +224,7 @@ if(IAmIn === 'group') // group page
             var toSortLeagues = [],
                 toSortTeams = [],
                 haveCustom = leagues.indexOf('Custom')>-1?1:0;
+
             for(var i = 0;i < leagues.length;i++)
             {
                 toSortTeams = [];
@@ -237,6 +260,7 @@ if(IAmIn === 'group') // group page
             {
                 toSortLeagues.push([leagues[leagues.length-1],teams[teams.length-1],jerseys[jerseys.length-1]]); //add 'Custom' back at end of list
             }
+
             for(var i = 0;i < toSortLeagues.length;i++)
             {
                 leagues[i] = toSortLeagues[i][0];
@@ -249,11 +273,11 @@ if(IAmIn === 'group') // group page
                     var team = jerseys[i][j],
                         toAppend;
                     if(team[1]) toAppend = team[1];
-                    else if(team[0]) toAppend = team[0];
+                    else if(team[0] && team.length > 0) toAppend = team[0];
                     toAppend = $('<option value="'+toAppend+'">'+teams[i][j]+'</option>');
                     groupRed.append(toAppend);
                     if(team[2]) toAppend = team[2];
-                    else if(team[0]) toAppend = team[0];
+                    else if(team[0] && team.length > 0) toAppend = team[0];
                     toAppend = $('<option value="'+toAppend+'">'+teams[i][j]+'</option>');
                     groupBlue.append(toAppend);
                 }
@@ -317,4 +341,4 @@ else if (IAmIn === 'game') { // ingame, draw jersey if there is one
             });
         }
     });
-}
+} 
