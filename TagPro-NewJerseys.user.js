@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TagPro NewJerseys
-// @version      0.40
+// @version      0.50
 // @description  Set and change ball jerseys directly from the group page
 // @author       Some Ball -1, zeeres
 // @include      http://tagpro-*.koalabeast.com*
@@ -106,7 +106,7 @@ if(IAmIn === 'group') // group page
                             jerseys[league_index][team_index] = [];
                             jerseys[league_index][team_index][parseInt(descriptor[2])] = curr.id;
                         } else {
-                            jerseys[league_index][teams[league].indexOf(curr.title)][parseInt(descriptor[2])] = curr.id;
+                            jerseys[league_index][teams[league_index].indexOf(curr.title)][parseInt(descriptor[2])] = curr.id;
                         }
                     }
                 });
@@ -342,3 +342,4 @@ else if (IAmIn === 'game') { // ingame, draw jersey if there is one
         }
     });
 } 
+ 
