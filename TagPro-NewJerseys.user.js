@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TagPro NewJerseys
-// @version      0.50
+// @version      0.70
 // @description  Set and change ball jerseys directly from the group page
 // @author       Some Ball -1, zeeres
 // @include      http://tagpro-*.koalabeast.com*
@@ -53,11 +53,19 @@ if(IAmIn === 'group') // group page
     function setup()
     {
         var $redTeam = $('#red-team'); //.find('.player-group-header');
-        $redTeam.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br>'); 
+        $redTeam.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="redjersey-preview" src=""></div>');
+        $("#redjersey-preview").hide();
+        $('#redTeamJerseys').on('change', function() {
+            $("#redjersey-preview").attr("src", "http://i.imgur.com/" + $('option:selected', this).attr('value') + ".png").show();
+        });
         var $blueTeam = $('#blue-team'); //.find('.player-group-header');
-        $blueTeam.append('<select id="blueTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br>');
+        $blueTeam.append('<select id="blueTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="bluejersey-preview" src=""></div>');
         $('#redTeamJerseys').change(function() {GM_setValue('redJersey',$('#redTeamJerseys').val()==='none'?false:$('#redTeamJerseys').val());});
         $('#blueTeamJerseys').change(function() {GM_setValue('blueJersey',$('#blueTeamJerseys').val()==='none'?false:$('#blueTeamJerseys').val());});
+        $("#bluejersey-preview").hide();
+        $('#blueTeamJerseys').on('change', function() {
+            $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + $('option:selected', this).attr('value') + ".png").show();
+        });
         tagpro.group.socket.on('play',function() {
             GM_setValue('fromGroup',true);
         });
