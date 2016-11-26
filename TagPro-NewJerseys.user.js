@@ -1,29 +1,315 @@
 // ==UserScript==
 // @name         TagPro NewJerseys
-// @version      0.70
+// @version      1.0.1
 // @description  Set and change ball jerseys directly from the group page
-// @author       Some Ball -1, zeeres
+// @author       zeeres
 // @include      http://tagpro-*.koalabeast.com*
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_log
 // ==/UserScript==
+
+//==   This script is based on Some Ball -1's "TagPro Jerseys" script   ==\\
 
 var spinJerseys = true; //true or false
 
 // Add your own imgur album links here inside quotes with commas between quoted album links
 // For example: var customAlbums = ["http://imgur.com/a/0zBNw", "http://imgur.com/a/1abcD"]; (do not include comma if only 1 album)
 // Images should have titles that match team names and a single digit numerical description that matches team color (0 for either/both, 1 for red, 2 for blue)
-var customAlbums = ["https://imgur.com/a/fSicG"];
+var Albums = ["https://imgur.com/a/tE24G", "https://imgur.com/a/fSicG"];
 
 // Add your own imgur image links here inside quotes with commas between quoted image links, it must links to the png file
 // For example: var customImages = ["http://i.imgur.com/17aAwABc.png", "http://i.imgur.com/abc123DEF.png"]; (do not include comma if only 1 image)
 // Images should have titles that match team names and a single digit numerical description that matches team color (0 for either/both, 1 for red, 2 for blue)
-var customImages = [];
+// var Images = [];  // not implemented atm
+
+var client_id = 'c638f51525edea6';  // don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
+
+var default_data = {stored: true, active: true, isPrivate: false, lastRedTeam: false, lastRedTeamName: 'Red', lastBlueTeam: false, lastBlueTeamName: 'Blue', leagues: [], showLeagues: [], known_teams: {}};  // default data
+
+class Settings {
+    constructor(data) {
+        this.prefix = 'TPNJ_';
+        if (GM_getValue(this.prefix+'stored') === undefined) {   // never stored values yet
+            this.data = data;
+            this.store_all();
+        } else {
+            this.data = {};
+            for (var d in default_data) {
+                this.data[d] = GM_getValue(this.prefix+d);
+            }
+        }
+    }
+    set(variable, value) {
+        this.data[variable] = value;
+        GM_setValue(this.prefix+variable, value);
+        console.log('have set ' + variable + ' to ' + value);
+    }
+    delete(variable) {
+        delete this.data[variable];
+        GM_deleteValue(this.prefix+variable);
+    }
+    get(variable) {
+        console.log(variable + ' is ' + GM_getValue(this.prefix+variable));
+        var value = GM_getValue(this.prefix+variable);
+        var keys = Object.keys(default_data);
+        var found = false;
+        for(var i = 0; i < keys.length; i++) {
+            if (keys[i] === variable) found = true;
+        }
+        if (value === undefined && !found) {
+            this.set(variable, default_data[variable]);
+            return default_data[variable];
+        } else return value;
+    }
+    store_all() {
+        for (var d in this.data) {
+            GM_setValue(this.prefix+d, this.data[d]);
+        }
+    }
+    log_all() {
+        for (var d in this.data) {
+            console.log(d + ': ' + this.data[d]);
+        }
+    }
+    delete_all() {
+        for (var d in this.data) {
+            GM_deleteValue(this.prefix+d);
+        }
+    }
+}
+
+function ObjectIndexOf(myArray, property, searchTerm) {  // searches for a property in a {}-object
+    for(var i = 0, len = myArray.length; i < len; i++) {
+        if (myArray[i][property] === searchTerm) return i;
+    }
+    return -1;
+}
+
+
+function ajax_read_albums() {
+    for (var a = 0; a < Albums.length; a++) {
+        var match = /([A-Za-z]+)\|([0-9])/;  // imgur description will be matched for this
+        console.log('Albums['+a+']: ' + Albums[a]);
+        var id = Albums[a].match(/http[s]?:\/\/imgur\.com\/a\/(.+)[\/]?/)[1];  // [0] is the whole string, [1] only the matched group (.+);
+        console.log('id: ' + id);
+        $.ajax({
+            url: 'https://api.imgur.com/3/album/'+id+'/images',
+            headers: {
+                'Authorization': 'Client-ID '+client_id  // don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
+            },
+            type: 'GET',
+            success: function(ajax) {
+                var data = settings.get('leagues');
+                ajax.data.forEach(function(curr) {
+                    if(curr.description && curr.title)
+                    {
+                        var descriptor = curr.description.match(match);
+                        var league_index = ObjectIndexOf(data, "league", descriptor[1]);
+                        if (league_index === -1)  // new league
+                        {
+                            data.push({"league": descriptor[1], "teams": []});
+                            league_index = data.length-1;
+                        }
+                        var team_index = ObjectIndexOf(data[league_index].teams, "team", curr.title);
+                        var jersey_type = parseInt(descriptor[2]);
+                        var jersey = (jersey_type === 1)?'red':((jersey_type === 2)?'blue':'neutral');
+                        if(team_index === -1)  // new team
+                        {
+                            data[league_index].teams.push({"team": curr.title, "jerseys": {jersey: curr.id}});
+                        } else {
+                            data[league_index].teams[team_index].jerseys[jersey] = curr.id;
+                        }
+                    }
+                });
+                console.log('ajax2 data: ' + data);
+                settings.set('leagues', data);
+            }
+        });
+    }
+}
+
+function inactive_hide() {
+    $("#tpnj-ul").hide();
+    $("#tpnj-header").css('background', '#54752d');
+    $("label#tpnj-league").hide();
+}
+
+function create_html() {
+    var data = settings.get('leagues');
+    var $spectators = $('#spectators');
+    $('<div id="tpnj" class="col-md-12 private-game"><div id="tpnj_group" class="player-group"><div id="tpnj-header" class="player-group-header" style="background: #8bc34a; color: #fff;"><div class="team-name">TagPro NewJerseys</div><div class="pull-right"><label class="btn btn-default" id="tnjp_switch"><input type="checkbox" name="tpnj_active"> active</label></div><div class="clearfix"></div></div><ul id="tpnj-ul" style="background: #353535; border-radius: 0 0 3px 3px; border: 1px solid #404040; border-top: 1px solid #2b2b2b; padding: 10px; overflow-y: auto;"><div id="redselect" class="col-md-6 private-game"></div><div id="blueselect" class="col-md-6 private-game"></div></ul></div></div>').insertBefore('#spectators');
+    $('input[name="tpnj_active"]').prop('checked', settings.get('active'));
+    $('input[name="tpnj_active"]').change(function() {
+        settings.set('active', this.checked);
+        if (this.checked) {
+            settings.set('active', true);
+            $("#tpnj-ul").show();
+            $("#tpnj-header").css('background', '#8bc34a');
+            $("label#tpnj-league").show();
+            html_data();
+        } else {
+            settings.set('active', false);
+            inactive_hide();
+        }
+    });
+
+    var $playerGroup = $('#tpnj_group');
+    var showLeagues = settings.get('showLeagues');
+    console.log('showLeagues: ' + showLeagues);
+    console.log('data.length: ' + data.length);
+    for (var league = 0; league < data.length; league++) {  // button for each league
+        $playerGroup.append('<label class="btn btn-default" id="tpnj-league"><input type="checkbox" name="tpnj_league_' + league + '"> ' + data[league].league + '</label>');
+        if (showLeagues.indexOf(league) !== -1) {
+            $('input[name="tpnj_league_' + league + '"]').prop('checked', true);
+        }
+        $('input[name="tpnj_league_' + league + '"]').change(function() {
+            var id = parseInt(this.name.match(/tpnj_league_([0-9]*)/)[1]);
+            console.log('change_id:' + id);
+            var index = showLeagues.indexOf(id);
+            console.log('index: ' + index);
+            if (this.checked) {
+                if (index === -1) {
+                    showLeagues.push(id);
+                    settings.set('showLeagues', showLeagues);
+                }
+            } else {
+                if (index !== -1) {
+                    showLeagues.splice(index, 1);
+                    settings.set('showLeagues', showLeagues);
+                }
+            }
+            html_data();
+        });
+    }
+
+    var $redselect = $('#redselect');
+    $redselect.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="redjersey-preview" src=""></div>');
+    $("#redjersey-preview").hide();
+    $('#redTeamJerseys').on('change', function() {
+        var val = $('option:selected', this).attr('value');
+        settings.set('lastRedTeam', val);
+        if (val !== 'none') {
+            var d = val.split('.');
+            var img = data[d[0]].teams[d[1]].jerseys[d[2]];
+            $("#redjersey-preview").attr("src", "http://i.imgur.com/" + img + ".png").show();
+            update_known_teams(val, 'red');
+            html_data();
+        } else $("#redjersey-preview").hide();
+    });
+
+    var $blueselect = $('#blueselect');
+    $blueselect.append('<select id="blueTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="bluejersey-preview" src=""></div>');
+    $("#bluejersey-preview").hide();
+    $('#blueTeamJerseys').on('change', function() {
+        var val = $('option:selected', this).attr('value');
+        settings.set('lastBlueTeam', val);
+        if (val !== 'none') {
+            var d = val.split('.');
+            var img = data[d[0]].teams[d[1]].jerseys[d[2]];
+            $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + img + ".png").show();
+            update_known_teams(val, 'blue');
+        } else $("#bluejersey-preview").hide();
+    });
+    if (!settings.get('active')) inactive_hide();
+}
+
+function update_known_teams(val, teamcolor) {
+    var known_teams = settings.get('known_teams');
+    var teamName = (teamcolor === 'red')?settings.get('redTeamName'):settings.get('blueTeamName');
+    if (teamName !== 'Red' && teamName !== 'Blue') {
+        known_teams[teamName] = val;
+    }
+    settings.set('known_teams', known_teams);
+}
+
+function convert_known_team(team_name, teamcolor) {  // convert known_team ("league.team.jersey") to appropriate teamcolor
+    var ltj = settings.get('known_teams')[team_name];
+    if (ltj === undefined) return false;  // if not found
+    var d = ltj.split('.');
+    var color = d[3];
+    if (d[2] !== 'neutral') color = teamcolor;
+    return d[0]+'.'+d[1]+'.'+color;
+}
+
+function html_data() {
+    var data = settings.get('leagues');
+    $('#redTeamJerseys').children().remove();  // remove all teams from select box
+    $('#blueTeamJerseys').children().remove();  // remove all teams from select box
+    // add teams to select box again
+    var showLeagues = settings.get('showLeagues');
+    console.log('showLeagues: ' + showLeagues);
+    for (var l in showLeagues) {
+        var li = showLeagues[l];
+        var $groupRed = $('<optgroup label="'+data[li].league+'">');
+        var $groupBlue = $('<optgroup label="'+data[li].league+'">');
+        for(var t = 0; t < data[li].teams.length; t++)
+        {
+            var team = data[li].teams[t].team;
+            var jerseys = data[li].teams[t].jerseys;
+            var option = '';
+            if (jerseys.red) $groupRed.append('<option value="'+li+'.'+t+'.red">'+team+'</option>');  // value format: "league_index.team_index.jersey_type
+            if (jerseys.blue) $groupBlue.append('<option value="'+li+'.'+t+'.blue">'+team+'</option>');  // value format: "league_index.team_index.jersey_type
+            if (jerseys.neutral) {
+                $groupRed.append('<option value="'+li+'.'+t+'.neutral">'+team+' (n)</option>');  // value format: "league_index.team_index.jersey_type
+                $groupBlue.append('<option value="'+li+'.'+t+'.neutral">'+team+' (n)</option>');  // value format: "league_index.team_index.jersey_type
+            }
+        }
+        $('#redTeamJerseys')[0].add($groupRed[0]);
+        $('#blueTeamJerseys')[0].add($groupBlue[0]);
+    }
+
+    var lastRedTeam = settings.get('lastRedTeam');
+    var d, img;
+    var known_teams = settings.get('known_teams');
+    if(lastRedTeam) {
+        $('#redTeamJerseys').val(lastRedTeam);
+        d = lastRedTeam.split('.');
+    } else {
+        $('#redTeamJerseys').val(known_teams[settings.get('redTeamName')]);
+    }
+    if (d !== undefined) {  // if lastRedTeam is not of the format "league.team.jersey"
+        img = data[d[0]].teams[d[1]].jerseys[d[2]];
+        $("#redjersey-preview").attr("src", "http://i.imgur.com/" + img + ".png").show();
+    }
+
+    var db, imgb;
+    var lastBlueTeam = settings.get('lastBlueTeam');
+    if(lastBlueTeam) {
+        $('#blueTeamJerseys').val(lastBlueTeam);
+        db = lastBlueTeam.split('.');
+    } else {
+        $('#blueTeamJerseys').val(known_teams[settings.get('blueTeamName')]);
+    }
+    if (db !== undefined) {
+        imgb = data[db[0]].teams[db[1]].jerseys[db[2]];
+        $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + imgb + ".png").show();
+    }
+}
+
+function sort_data() {
+    // sort data
+    var data = settings.get('leagues');
+    data.sort(function(a, b) {  // sort data by league name:
+        var nameA = a.league.toUpperCase();
+        var nameB = b.league.toUpperCase();
+        return nameA.localeCompare(nameB);
+    });
+    for (var l = 0; l < data.length; l++) {  // sort teams in each league
+        data[l].teams.sort(function(a, b) {
+            var nameA = a.team.toUpperCase();
+            var nameB = b.team.toUpperCase();
+            return nameA.localeCompare(nameB);
+        });
+    }
+    settings.set('leagues', data);
+}
 
 var WhereAmI = function(){
     if (window.location.port) {
         return('game');
-    } else if (window.location.pathname.startsWith('/group')) {
+    } else if (window.location.pathname.startsWith('/groups/')) {
         return('group');
     } else {
         return('elsewhere');
@@ -31,292 +317,91 @@ var WhereAmI = function(){
 };
 
 var IAmIn = WhereAmI();
+var settings = new Settings(default_data);
+//settings.delete_all();
+//settings = new Settings();
 
-
-if(IAmIn === 'group') // group page
+if(IAmIn === 'group')  // group page
 {
     var init = false;
     tagpro.group.socket.on('private',function(priv) {
-        if(GM_getValue('groupId')!==location.pathname) //new group
+        if (!priv.isPrivate) settings.set('isPrivate', false);
+        if (priv.isPrivate && !init)
         {
-            GM_setValue('groupId',location.pathname);
-            GM_setValue('fromGroup',false);
-            GM_setValue('redJersey',false);
-            GM_setValue('blueJersey',false);
-        }
-        if(priv.isPrivate && !init)
-        {
-            setup();
+            ajax_read_albums();
+            sort_data();
+            settings.store_all();
+            console.log('asdf: ' + settings.get('leagues'));
+            create_html();
+            html_data();
+            settings.set('isPrivate', true);
             init = true;
+            tagpro.group.socket.on('setting',function(setting) {
+                var data = settings.get('leagues');
+                var known_teams = settings.get('known_teams');
+                for (var t in known_teams) {
+                    console.log('t: ' + t);
+                    if (known_teams.hasOwnProperty(t)) {
+                        console.log('known_teams[' + t + ']: ' + known_teams[t]);
+                    }
+                }
+                var known_teams_ltj;
+                if (setting.name === 'redTeamName') {
+                    known_teams_ltj = known_teams[setting.value];
+                    console.log('known_teams_ltj red: ' + known_teams_ltj);
+                    settings.set('redTeamName', setting.value);
+                    if (setting.value !== 'Red' && known_teams_ltj) {
+                        var ltjr = convert_known_team(setting.value, 'red');
+                        if (ltjr) {
+                            console.log('convert_known_team red: ' + convert_known_team(setting.value, 'red'));
+                            $('#redTeamJerseys').val(convert_known_team(setting.value, 'red'));
+                            var d = ltjr.split('.');
+                            if (d !== undefined) {  // if ltjr is not of the format "league.team.jersey"
+                                var img = data[d[0]].teams[d[1]].jerseys[d[2]];
+                                $("#redjersey-preview").attr("src", "http://i.imgur.com/" + img + ".png").show();
+                            }
+                        }
+                    }
+                } else if (setting.name === 'blueTeamName') {
+                    known_teams_ltj = settings.get('known_teams')[setting.value];
+                    console.log('known_teams_ltj blue: ' + known_teams_ltj);
+                    settings.set('blueTeamName', setting.value);
+                    if (setting.value !== 'Blue' && known_teams_ltj) {
+                        var ltjb = convert_known_team(setting.value, 'blue');
+                        if (ltjb) {
+                            console.log('convert_known_team blue: ' + ltjb);
+                            $('#blueTeamJerseys').val(ltjb);
+                            var db = ltjb.split('.');
+                            if (db !== undefined) {  // if ltjb is not of the format "league.team.jersey"
+                                var imgb = data[db[0]].teams[db[1]].jerseys[db[2]];
+                                $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + imgb + ".png").show();
+                            }
+                        }
+                    }
+                }
+            });
         }
     });
-    function setup()
-    {
-        var $redTeam = $('#red-team'); //.find('.player-group-header');
-        $redTeam.append('<select id="redTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="redjersey-preview" src=""></div>');
-        $("#redjersey-preview").hide();
-        $('#redTeamJerseys').on('change', function() {
-            $("#redjersey-preview").attr("src", "http://i.imgur.com/" + $('option:selected', this).attr('value') + ".png").show();
-        });
-        var $blueTeam = $('#blue-team'); //.find('.player-group-header');
-        $blueTeam.append('<select id="blueTeamJerseys" class="form-control" style="width: 100%"><option value="none">Choose Jersey</option></select></br><div class="player-group small" style="text-align: center;"><img id="bluejersey-preview" src=""></div>');
-        $('#redTeamJerseys').change(function() {GM_setValue('redJersey',$('#redTeamJerseys').val()==='none'?false:$('#redTeamJerseys').val());});
-        $('#blueTeamJerseys').change(function() {GM_setValue('blueJersey',$('#blueTeamJerseys').val()==='none'?false:$('#blueTeamJerseys').val());});
-        $("#bluejersey-preview").hide();
-        $('#blueTeamJerseys').on('change', function() {
-            $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + $('option:selected', this).attr('value') + ".png").show();
-        });
-        tagpro.group.socket.on('play',function() {
-            GM_setValue('fromGroup',true);
-        });
-        tagpro.group.socket.on('private',function() {
-            GM_setValue('fromGroup',false);
-        });
-        $('#joinButton').click(function() {
-            GM_setValue('fromGroup',true);
-        });
-        $('#leaveButton').click(function() {
-            GM_setValue('fromGroup',false);
-            GM_setValue('redJersey',false);
-            GM_setValue('blueJersey',false);
-        });
-        var jerseys = [[[]]], //league > team > jersey colors
-            teams = [[]], //league > team
-            leagues = [], //league
-            match = /([A-Za-z]+)\|([0-9])/;  // imgur description will be matched for this
-
-        $.ajax({
-            url: 'https://api.imgur.com/3/album/tE24G/images',
-            headers: {
-                'Authorization': 'Client-ID c638f51525edea6' //don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
-            },
-            type: 'GET',
-            success: function(data) {
-                data.data.forEach(function(curr) {
-                    if(curr.description && curr.title)
-                    {
-                        var descriptor = curr.description.match(match),
-                            league_index,
-                            team_index;
-                        if(leagues.indexOf(descriptor[1])===-1) //new league
-                        {
-                            leagues.push(descriptor[1]);
-                            league_index = leagues.length-1;
-                            teams[league_index] = [];
-                            jerseys[league_index] = [[]];
-                        } else {
-                            league_index = leagues.indexOf(descriptor[1]);
-                        }
-                        if(teams[league_index].indexOf(curr.title)===-1) //new team
-                        {
-                            teams[league_index].push(curr.title);
-                            team_index = teams[league_index].length-1;
-                            jerseys[league_index][team_index] = [];
-                            jerseys[league_index][team_index][parseInt(descriptor[2])] = curr.id;
-                        } else {
-                            jerseys[league_index][teams[league_index].indexOf(curr.title)][parseInt(descriptor[2])] = curr.id;
-                        }
-                    }
-                });
-                function nextAlbum(albumIndex)
-                {
-                    if(albumIndex<customAlbums.length)
-                    {
-                        var id = customAlbums[albumIndex].match(/http[s]?:\/\/imgur\.com\/a\/(.+)/);
-                        ajaxAlbum(id[1],albumIndex+1);
-                    }
-                    else nextImage(0); //move on to custom images
-                }
-                function ajaxAlbum(id,nextIndex)
-                {
-                    $.ajax({
-                        url: 'https://api.imgur.com/3/album/'+id+'/images',
-                        headers: {
-                            'Authorization': 'Client-ID c638f51525edea6' //don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
-                        },
-                        type: 'GET',
-                        success: function(data) {
-                            data.data.forEach(function(curr) {
-                                if(curr.title)
-                                {
-                                    var descriptor = curr.description.match(match),
-                                        league_index,
-                                        team_index;
-                                    if (curr.description && descriptor)
-                                    {
-                                        if(leagues.indexOf(descriptor[1])===-1) //new league
-                                        {
-                                            leagues.push(descriptor[1]);
-                                            league_index = leagues.length-1;
-                                            teams[league_index] = [];
-                                            jerseys[league_index] = [[]];
-                                        } else {
-                                            league_index = leagues.indexOf(descriptor[1]);
-                                        }
-                                    } else if(leagues.indexOf('Custom')===-1)
-                                    {
-                                        leagues.push('Custom');
-                                        league_index = leagues.length-1;
-                                        teams[league_index] = [];
-                                        jerseys[league_index] = [[]];
-                                    } else {
-                                        league_index = leagues.indexOf('Custom');
-                                    }
-
-                                    if(teams[league_index].indexOf(curr.title)===-1)  //new team
-                                    {
-                                        teams[league_index].push(curr.title);
-                                        team_index = teams[league_index].length-1;
-                                        jerseys[league_index][team_index] = [];
-                                        jerseys[league_index][team_index][descriptor?parseInt(descriptor[2]):0] = curr.id;
-                                    } else {
-                                        team_index = teams[league_index].indexOf(curr.title);
-                                        jerseys[league_index][team_index][descriptor?parseInt(descriptor[2]):0] = curr.id;
-                                    }
-                                }
-                            });
-                            nextAlbum(nextIndex);
-                        }
-                    });
-                }
-                function nextImage(imageIndex)
-                {
-                    if(imageIndex<customImages.length)
-                    {
-                        var id = customImages[imageIndex].match(/http:\/\/i\.imgur\.com\/(.+)\.png/);
-                        ajaxImage(id[1],imageIndex+1);
-                    }
-                    else sortAndAdd(); //move on to sorting
-                }
-                function ajaxImage(id,nextIndex)
-                {
-                    $.ajax({
-                        url: 'https://api.imgur.com/3/image/'+id,
-                        headers: {
-                            'Authorization': 'Client-ID c638f51525edea6' //don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
-                        },
-                        type: 'GET',
-                        success: function(data) {
-                            var curr = data.data;
-                            if(curr.title)
-                            {
-                                var color = curr.description?curr.description.match(/\d/):0,
-                                    league,
-                                    team;
-                                if(leagues.indexOf('Custom')===-1)
-                                {
-                                    leagues.push('Custom');
-                                    league = leagues.length-1;
-                                    teams[league] = [];
-                                    jerseys[league] = [[]];
-                                }
-                                league = league || leagues.indexOf('Custom');
-                                if(teams[league].indexOf(curr.title)===-1)
-                                {
-                                    teams[league].push(curr.title);
-                                    team = teams[league].length-1;
-                                    jerseys[league][team] = [];
-                                }
-                                jerseys[league][team || teams[league].indexOf(curr.title)][color?color:0] = curr.id;
-                            }
-                            nextImage(nextIndex);
-
-                        }
-                    });
-                }
-                nextAlbum(0); //begin with custom albums
-            }
-        });
-        function sortAndAdd()
-        {
-            var toSortLeagues = [],
-                toSortTeams = [],
-                haveCustom = leagues.indexOf('Custom')>-1?1:0;
-
-            for(var i = 0;i < leagues.length;i++)
-            {
-                toSortTeams = [];
-                for(var j = 0;j < teams[i].length;j++)
-                {
-                    toSortTeams.push([teams[i][j],jerseys[i][j]]);
-                }
-                toSortTeams.sort(function(a,b) {
-                    if(a[0].toUpperCase()>b[0].toUpperCase()) return 1; //regular alphabetical sort, ignore case
-                    if(a[0].toUpperCase()<b[0].toUpperCase()) return -1;
-                    if(a[0]>b[0]) return 1; //sort with case if otherwise identical
-                    if(a[0]<b[0]) return -1;
-                    return 0;
-                });
-                for(var j = 0;j < toSortTeams.length;j++)
-                {
-                    teams[i][j] = toSortTeams[j][0];
-                    jerseys[i][j] = toSortTeams[j][1];
-                }
-                if(!haveCustom || (haveCustom && i<leagues.length-1)) //ignore 'Custom' league for sorting
-                {
-                    toSortLeagues.push([leagues[i],teams[i],jerseys[i]]);
-                }
-            }
-            toSortLeagues.sort(function(a,b) {
-                if(a[0].toUpperCase()>b[0].toUpperCase()) return 1;
-                if(a[0].toUpperCase()<b[0].toUpperCase()) return -1;
-                if(a[0]>b[0]) return 1;
-                if(a[0]<b[0]) return -1;
-                return 0;
-            });
-            if(haveCustom)
-            {
-                toSortLeagues.push([leagues[leagues.length-1],teams[teams.length-1],jerseys[jerseys.length-1]]); //add 'Custom' back at end of list
-            }
-
-            for(var i = 0;i < toSortLeagues.length;i++)
-            {
-                leagues[i] = toSortLeagues[i][0];
-                teams[i] = toSortLeagues[i][1];
-                jerseys[i] = toSortLeagues[i][2];
-                var groupRed = $('<optgroup label="'+leagues[i]+'">');
-                var groupBlue = $('<optgroup label="'+leagues[i]+'">');
-                for(var j = 0;j < teams[i].length;j++)
-                {
-                    var team = jerseys[i][j],
-                        toAppend;
-                    if(team[1]) toAppend = team[1];
-                    else if(team[0] && team.length > 0) toAppend = team[0];
-                    toAppend = $('<option value="'+toAppend+'">'+teams[i][j]+'</option>');
-                    groupRed.append(toAppend);
-                    if(team[2]) toAppend = team[2];
-                    else if(team[0] && team.length > 0) toAppend = team[0];
-                    toAppend = $('<option value="'+toAppend+'">'+teams[i][j]+'</option>');
-                    groupBlue.append(toAppend);
-                }
-                $('#redTeamJerseys')[0].add(groupRed[0]);
-                $('#blueTeamJerseys')[0].add(groupBlue[0]);
-            }
-            if(GM_getValue('redJersey')) $('#redTeamJerseys').val(GM_getValue('redJersey'));
-            if(GM_getValue('blueJersey')) $('#blueTeamJerseys').val(GM_getValue('blueJersey'));
-        }
-    }
 }
-else if (IAmIn === 'game') { // ingame, draw jersey if there is one
+else if (IAmIn === 'game') {  // ingame, draw jersey if there is one
     tagpro.ready(function() {
-        if(!tagpro.group.socket || !GM_getValue('fromGroup'))
+        if (tagpro.group.socket && settings.get('isPrivate') && settings.get('active'))  // if script is activated and group is private
         {
-            GM_setValue('fromGroup',false);
-            GM_setValue('redJersey',false);
-            GM_setValue('blueJersey',false);
-        }
-        else if(GM_getValue('redJersey') || GM_getValue('blueJersey'))
-        {
-            var red = GM_getValue('redJersey');
-            var blue = GM_getValue('blueJersey');
-            var jersey = [red==='none'?false:red,blue==='none'?false:blue]; //incase 'none' somehow makes it through
-            if(jersey[0] || jersey[1])
-            {
+            var ltjr = settings.get('lastRedTeam');
+            var ltjb = settings.get('lastBlueTeam');
+            if ((ltjr && ltjr !== undefined) || (ltjb && ltjb !== undefined)) {  // one of red or blue is not false => at least one jersey was set
+                var leagues = settings.get('leagues');
+                var dr = ltjr.split('.'), db = ltjb.split('.');
+                var imgr = leagues[dr[0]].teams[dr[1]].jerseys[dr[2]], imgb = leagues[db[0]].teams[db[1]].jerseys[db[2]];
+                console.log('dr:' + dr);
+                console.log('db:' + db);
+
                 var tr = tagpro.renderer,
                     oldUPSP = tr.updatePlayerSpritePosition;
 
                 tr.createJersey = function(player) {
-                    if(!jersey[player.team-1]) //make empty container if one team doesn't have a jersey
+                    var img = (player.team === 1)?imgr:imgb;
+                    if(!img)  // make empty container if one team doesn't have a jersey
                     {
                         if(player.sprites.jersey) player.sprites.ball.removeChild(player.sprites.jersey);
                         player.sprites.jersey = new PIXI.DisplayObjectContainer();
@@ -326,9 +411,9 @@ else if (IAmIn === 'game') { // ingame, draw jersey if there is one
                     else
                     {
                         if(player.sprites.jersey) player.sprites.ball.removeChild(player.sprites.jersey);
-                        player.sprites.jersey = new PIXI.Sprite(PIXI.Texture.fromImage('http://i.imgur.com/'+jersey[player.team-1]+'.png'));
+                        player.sprites.jersey = new PIXI.Sprite(PIXI.Texture.fromImage('http://i.imgur.com/' + img + '.png'));
                         player.sprites.jersey.team = player.team;
-                        player.sprites.ball.addChildAt(player.sprites.jersey,1); //add on top of ball, below other stuff
+                        player.sprites.ball.addChildAt(player.sprites.jersey, 1); // add on top of ball, below other stuff
                         player.sprites.jersey.anchor.x = 0.5;
                         player.sprites.jersey.anchor.y = 0.5;
                         player.sprites.jersey.x = 20;
@@ -344,10 +429,10 @@ else if (IAmIn === 'game') { // ingame, draw jersey if there is one
                     oldUPSP(player);
                 };
             }
-            tagpro.socket.on('end',function() {
-                GM_setValue('fromGroup',false);
-            });
+        } else {  // if not in group, reset the last teams
+            settings.set('lastRedTeam', false);
+            settings.set('lastBlueTeam', false);
+            settings.set('isPrivate', false);
         }
     });
-} 
- 
+}
