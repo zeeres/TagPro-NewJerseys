@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TagPro NewJerseys
-// @version      1.0.1
+// @version      1.0.3
 // @description  Set and change ball jerseys directly from the group page
 // @author       zeeres
 // @include      http://tagpro-*.koalabeast.com*
@@ -44,14 +44,12 @@ class Settings {
     set(variable, value) {
         this.data[variable] = value;
         GM_setValue(this.prefix+variable, value);
-        console.log('have set ' + variable + ' to ' + value);
     }
     delete(variable) {
         delete this.data[variable];
         GM_deleteValue(this.prefix+variable);
     }
     get(variable) {
-        console.log(variable + ' is ' + GM_getValue(this.prefix+variable));
         var value = GM_getValue(this.prefix+variable);
         var keys = Object.keys(default_data);
         var found = false;
@@ -91,9 +89,7 @@ function ObjectIndexOf(myArray, property, searchTerm) {  // searches for a prope
 function ajax_read_albums() {
     for (var a = 0; a < Albums.length; a++) {
         var match = /([A-Za-z]+)\|([0-9])/;  // imgur description will be matched for this
-        console.log('Albums['+a+']: ' + Albums[a]);
         var id = Albums[a].match(/http[s]?:\/\/imgur\.com\/a\/(.+)[\/]?/)[1];  // [0] is the whole string, [1] only the matched group (.+);
-        console.log('id: ' + id);
         $.ajax({
             url: 'https://api.imgur.com/3/album/'+id+'/images',
             headers: {
@@ -123,7 +119,6 @@ function ajax_read_albums() {
                         }
                     }
                 });
-                console.log('ajax2 data: ' + data);
                 settings.set('leagues', data);
             }
         });
@@ -157,8 +152,6 @@ function create_html() {
 
     var $playerGroup = $('#tpnj_group');
     var showLeagues = settings.get('showLeagues');
-    console.log('showLeagues: ' + showLeagues);
-    console.log('data.length: ' + data.length);
     for (var league = 0; league < data.length; league++) {  // button for each league
         $playerGroup.append('<label class="btn btn-default" id="tpnj-league"><input type="checkbox" name="tpnj_league_' + league + '"> ' + data[league].league + '</label>');
         if (showLeagues.indexOf(league) !== -1) {
@@ -166,9 +159,7 @@ function create_html() {
         }
         $('input[name="tpnj_league_' + league + '"]').change(function() {
             var id = parseInt(this.name.match(/tpnj_league_([0-9]*)/)[1]);
-            console.log('change_id:' + id);
             var index = showLeagues.indexOf(id);
-            console.log('index: ' + index);
             if (this.checked) {
                 if (index === -1) {
                     showLeagues.push(id);
@@ -239,7 +230,6 @@ function html_data() {
     $('#blueTeamJerseys').children().remove();  // remove all teams from select box
     // add teams to select box again
     var showLeagues = settings.get('showLeagues');
-    console.log('showLeagues: ' + showLeagues);
     for (var l in showLeagues) {
         var li = showLeagues[l];
         var $groupRed = $('<optgroup label="'+data[li].league+'">');
@@ -331,7 +321,6 @@ if(IAmIn === 'group')  // group page
             ajax_read_albums();
             sort_data();
             settings.store_all();
-            console.log('asdf: ' + settings.get('leagues'));
             create_html();
             html_data();
             settings.set('isPrivate', true);
@@ -339,42 +328,34 @@ if(IAmIn === 'group')  // group page
             tagpro.group.socket.on('setting',function(setting) {
                 var data = settings.get('leagues');
                 var known_teams = settings.get('known_teams');
-                for (var t in known_teams) {
-                    console.log('t: ' + t);
-                    if (known_teams.hasOwnProperty(t)) {
-                        console.log('known_teams[' + t + ']: ' + known_teams[t]);
-                    }
-                }
                 var known_teams_ltj;
                 if (setting.name === 'redTeamName') {
                     known_teams_ltj = known_teams[setting.value];
-                    console.log('known_teams_ltj red: ' + known_teams_ltj);
                     settings.set('redTeamName', setting.value);
                     if (setting.value !== 'Red' && known_teams_ltj) {
                         var ltjr = convert_known_team(setting.value, 'red');
                         if (ltjr) {
-                            console.log('convert_known_team red: ' + convert_known_team(setting.value, 'red'));
                             $('#redTeamJerseys').val(convert_known_team(setting.value, 'red'));
                             var d = ltjr.split('.');
                             if (d !== undefined) {  // if ltjr is not of the format "league.team.jersey"
                                 var img = data[d[0]].teams[d[1]].jerseys[d[2]];
                                 $("#redjersey-preview").attr("src", "http://i.imgur.com/" + img + ".png").show();
+                                settings.set('lastRedTeam', ltjr);
                             }
                         }
                     }
                 } else if (setting.name === 'blueTeamName') {
                     known_teams_ltj = settings.get('known_teams')[setting.value];
-                    console.log('known_teams_ltj blue: ' + known_teams_ltj);
                     settings.set('blueTeamName', setting.value);
                     if (setting.value !== 'Blue' && known_teams_ltj) {
                         var ltjb = convert_known_team(setting.value, 'blue');
                         if (ltjb) {
-                            console.log('convert_known_team blue: ' + ltjb);
                             $('#blueTeamJerseys').val(ltjb);
                             var db = ltjb.split('.');
                             if (db !== undefined) {  // if ltjb is not of the format "league.team.jersey"
                                 var imgb = data[db[0]].teams[db[1]].jerseys[db[2]];
                                 $("#bluejersey-preview").attr("src", "http://i.imgur.com/" + imgb + ".png").show();
+                                settings.set('lastBlueTeam', ltjb);
                             }
                         }
                     }
@@ -393,9 +374,6 @@ else if (IAmIn === 'game') {  // ingame, draw jersey if there is one
                 var leagues = settings.get('leagues');
                 var dr = ltjr.split('.'), db = ltjb.split('.');
                 var imgr = leagues[dr[0]].teams[dr[1]].jerseys[dr[2]], imgb = leagues[db[0]].teams[db[1]].jerseys[db[2]];
-                console.log('dr:' + dr);
-                console.log('db:' + db);
-
                 var tr = tagpro.renderer,
                     oldUPSP = tr.updatePlayerSpritePosition;
 
