@@ -3,7 +3,7 @@
 // @version      1.7.0
 // @description  Set and change ball jerseys directly from the group page
 // @author       zeeres
-// @include      http://tagpro-*.koalabeast.com*
+// @include      *://tagpro*.koalabeast.com*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -26,7 +26,7 @@ var Albums = ["https://imgur.com/a/tE24G", "https://imgur.com/a/fSicG", "https:/
 // Images should have titles that match team names and a single digit numerical description that matches team color (0 for either/both, 1 for red, 2 for blue)
 // var Images = [];  // not implemented atm
 
-var client_id = 'c638f51525edea6';  // don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
+var client_id = 'YOUR_CLIENT_ID';  // don't steal my client-id. get your own very quickly from here: https://api.imgur.com/oauth2/addclient
 
 var default_data = {stored: true, active: true, isPrivate: false, lastRedTeam: false, lastRedTeamName: 'Red', lastBlueTeam: false, lastBlueTeamName: 'Blue', leagues: [], showLeagues: [], known_teams: {}};  // default data
 
@@ -368,7 +368,7 @@ function sort_data() {
 }
 
 var WhereAmI = function(){
-    if (window.location.port) {
+    if (tagproConfig && tagproConfig.gameSocket) {
         return('game');
     } else if (window.location.pathname.startsWith('/groups/')) {
         return('group');
@@ -385,9 +385,8 @@ var settings = new Settings(default_data);
 if(IAmIn === 'group')  // group page
 {
     var init = false;
-    tagpro.group.socket.on('private',function(priv) {
-        if (!priv.isPrivate) settings.set('isPrivate', false);
-        if (priv.isPrivate && !init)
+    tagpro.group.socket.on('you',function() {
+        if (!init)
         {
             ajax_read_albums();
             settings.store_all();
@@ -470,7 +469,7 @@ else if (IAmIn === 'game') {  // ingame, draw jersey if there is one
     settings.share('lastRedTeam');
     settings.share('lastBlueTeam');
     tagpro.ready(function() {
-        if (tagpro.group.socket && settings.get('isPrivate') && settings.get('active'))  // if script is activated and group is private
+        if (tagpro.group.socket && settings.get('active'))  // if script is activated and group is private
         {
             var ltjr = settings.get('lastRedTeam');
             var ltjb = settings.get('lastBlueTeam');
